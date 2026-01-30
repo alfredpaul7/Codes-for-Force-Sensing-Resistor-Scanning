@@ -8,7 +8,7 @@
 
 **Report link :** https://drive.google.com/drive/folders/1ozw_Ty0pGpx6KO5M5wNeE8qQ3ilpqTL_?usp=sharing
 
-**Github repository:**
+**Github repository:** https://github.com/alfredpaul7/Codes-for-Force-Sensing-Resistor-Scanning
 
 ## Introduction
 
