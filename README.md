@@ -1188,3 +1188,124 @@ In addition to linear calibration, other commonly used FSR calibration methods i
 ![image.png](attachment:9262565c-3f2b-46b6-98e5-011574bafade:image.png)
 
 **A unified C++ calibration code is implemented that integrates linear, power law, and fourth-order polynomial calibration methods for measuring the mass applied to a single FSR cell.**
+#include <Arduino.h>
+#include <math.h> 
+// --- Pin Definitions (Hardware) ---
+const int ser = 11; const int srclk = 13; const int rclk = 10;
+const int sPins[] = {2, 3, 4, 5};
+const int rowB = A1;
+// --- Electrical Constants ---
+const float VCC = 3.3; 
+const float R_FIXED = 10000.0; 
+const float ADC_RES = 4096.0;
+// --- 1. Linear Method Constants --- y=mx+c
+const float LIN_M = 11.8258;
+const float LIN_C = 0.1711;
+// --- 2. Power Law Method Constants ---y=ax^b +c
+const float PWR_A = 15.2683;
+const float PWR_B = 0.9093;
+// --- 3. 4th Order Polynomial Constants ---
+// Formula: y = Ax^4 + Bx^3 + Cx^2 + Dx + E
+const float POLY_A = 0.000527; 
+const float POLY_B = -0.03139;
+const float POLY_C = 0.44914;
+const float POLY_D = 9.48081;
+const float POLY_E = 7.57228;
+void setup() {
+  Serial.begin(115200);
+  pinMode(ser, OUTPUT); pinMode(srclk, OUTPUT); pinMode(rclk, OUTPUT);
+  for (int i = 0; i < 4; i++) pinMode(sPins[i], OUTPUT);
+  // Initialize hardware to read the specific sensor spot
+  digitalWrite(rclk, LOW);
+  for (int i = 1; i <= 32; i++) {
+    digitalWrite(srclk, LOW);
+    digitalWrite(ser, (i == 32) ? HIGH : LOW); 
+    digitalWrite(srclk, HIGH);
+  }
+  digitalWrite(rclk, HIGH);
+  for (int i = 0; i < 4; i++) digitalWrite(sPins[i], HIGH);
+  Serial.println("ADC | Linear (g) | Power (g) | Poly 4th (g)");
+  Serial.println("------------------------------------------");
+}
+void loop() {
+  delayMicroseconds(30); 
+  int adcVal = analogRead(rowB);
+  float vOut = (adcVal * VCC) / ADC_RES;
+  float mLin = 0, mPwr = 0, mPoly = 0;
+  if (adcVal > 15) {
+    float rFsr = ((VCC - vOut) * R_FIXED) / vOut;
+    float G = 1000000.0 / rFsr; // Conductance in uS
+    // --- METHOD 1: LINEAR ---
+    mLin = (LIN_M * G) + LIN_C;
+    // --- METHOD 2: POWER LAW ---
+    mPwr = PWR_A * pow(G, PWR_B);
+    // --- METHOD 3: 4th ORDER POLYNOMIAL ---
+    // Efficiently calculated using Horner's Method
+    mPoly = POLY_E + G * (POLY_D + G * (POLY_C + G * (POLY_B + G * POLY_A)));
+    // Safety: No negative weights
+    if (mLin < 0) mLin = 0; if (mPwr < 0) mPwr = 0; if (mPoly < 0) mPoly = 0;
+  }
+  // Displaying all three for comparison
+  Serial.print(" ADC: ");Serial.print(adcVal);
+  Serial.print(" | L: "); Serial.print(mLin, 1); 
+  Serial.print(" | P: "); Serial.print(mPwr, 1); 
+  Serial.print(" | Poly: "); Serial.println(mPoly, 1); 
+  delay(500);
+}
+## References
+
+**[1] RX-M3232L Force Sensing Resistor Matrix Datasheet – RoxiFSR Technologies**
+
+https://www.roxifsr.com/productinfo/3160053.html
+
+**[2] FSR 101: Force Sensing Resistor Theory and Applications – Sensitronics LLC**
+
+https://www.sensitronics.com/pdf/Sensitronics_FSR_101.pdf
+
+**[3] MatrixArray Sensor Interfacing and Scanning Tutorials – Sensitronics LLC**
+
+https://www.sensitronics.com/tutorials/fsr-matrix-array/index.php
+
+**[4] Force Sensing Resistor (FSR) Interfacing and Applications Tutorial – OMAT Controls**
+
+https://www.instructables.com/O-mat/
+
+**[5] Force Sensing Resistor: Theory, Characteristics, and Applications – Interlink Electronics**
+
+https://www.cnblogs.com/mcwhirr/articles/18872476
+
+**[6] SN74HC595: 8-Bit Shift Register with Output Latches Datasheet – Texas Instruments**
+
+https://www.ti.com/product/SN74HC595
+
+**[7] CD74HC4067: 16-Channel Analog Multiplexer/Demultiplexer Datasheet – Texas Instruments**
+
+https://www.ti.com/product/CD74HC4067
+
+**[8] Arduino Nano ESP32 Hardware and Software Documentation – Arduino**
+
+https://docs.arduino.cc/resources/datasheets/ABX00083-datasheet.pdf
+
+**[9] Infant Movement Classification Through Pressure Distribution Analysis**
+
+*T. Kulvicius et al., Communications Medicine, vol. 3, art. no. 112, 2023*
+
+https://www.researchgate.net/publication/362409744_Infant_movement_classification_through_pressure_distribution_analysis_--_added_value_for_research_and_clinical_implementation
+
+**[10] Evaluation of Force Sensing Resistors for the Measurement of Interface Pressures in Lower Limb Prosthetics**
+
+*E. C. Swanson et al., Journal of Biomechanical Engineering*
+
+[🔗 https://doi.org/10.1115/1.4043561](https://pmc.ncbi.nlm.nih.gov/articles/PMC6808001/)
+
+**[11] Resolution Enhancement Method Used for Force Sensing Resistor Array**
+
+*K. Flores De Jesus et al., Journal of Sensors, 2015*
+
+https://www.researchgate.net/publication/276313632_Resolution_Enhancement_Method_Used_for_Force_Sensing_Resistor_Array
+
+**[12] Precision Calibration and Linearity Assessment of Thin-Film Force-Sensing Resistors**
+
+*J. Jung et al., Applied Sciences, 2024*
+
+https://www.mdpi.com/2076-3417/14/16/6859
