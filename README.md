@@ -637,3 +637,554 @@ ser.close()
 Four 32×32 FSR matrices are combined to form a 64×64 sensing surface. The same scanning principles are extended using additional shift registers and multiplexers.
 
 ### Circuit Connection Table
+
+### Multiplexer Connections (Row Scanning)
+
+| COMPONENT | PIN | CONNECTED TO | DESCRIPTION |
+| --- | --- | --- | --- |
+| CD74HC4067 (Mux1) | SIG | Arduino A0 via 10 kΩ resistor | Analog output for FSR-1 rows 1–16 |
+| CD74HC4067 (Mux2) | SIG | Arduino A1 via 10 kΩ resistor | Analog output for FSR-1 rows 17–32 |
+| CD74HC4067 (Mux3) | SIG | Arduino A2 via 10 kΩ resistor | Analog output for FSR-2 rows 1–16 |
+| CD74HC4067 (Mux4) | SIG | Arduino A3 via 10 kΩ resistor | Analog output for FSR-2 rows 17–32 |
+| CD74HC4067 (Mux5) | SIG | Arduino A4 via 10 kΩ resistor | Analog output for FSR-3 rows 1–16 |
+| CD74HC4067 (Mux6) | SIG | Arduino A5 via 10 kΩ resistor | Analog output for FSR-3 rows 17–32 |
+| CD74HC4067 (Mux7) | SIG | Arduino A6 via 10 kΩ resistor | Analog output for FSR-4 rows 1–16 |
+| CD74HC4067 (Mux8) | SIG | Arduino A7 via 10 kΩ resistor | Analog output for FSR-4 rows 17–32 |
+| CD74HC4067 (All) | EN | GND | Enables multiplexers (active low) |
+| CD74HC4067 (All) | S0 | Arduino D2 | Channel select bit 0 |
+| CD74HC4067 (All) | S1 | Arduino D3 | Channel select bit 1 |
+| CD74HC4067 (All) | S2 | Arduino D4 | Channel select bit 2 |
+| CD74HC4067 (All) | S3 | Arduino D5 | Channel select bit 3 |
+| CD74HC4067 (Mux1) | C0–C15 | FSR-1 Rows R1–R16 | Row signal inputs |
+| CD74HC4067 (Mux2) | C0–C15 | FSR-1 Rows R17–R32 | Row signal inputs |
+| CD74HC4067 (Mux3) | C0–C15 | FSR-2 Rows R1–R16 | Row signal inputs |
+| CD74HC4067 (Mux4) | C0–C15 | FSR-2 Rows R17–R32 | Row signal inputs |
+| CD74HC4067 (Mux5) | C0–C15 | FSR-3 Rows R1–R16 | Row signal inputs |
+| CD74HC4067 (Mux6) | C0–C15 | FSR-3 Rows R17–R32 | Row signal inputs |
+| CD74HC4067 (Mux7) | C0–C15 | FSR-4 Rows R1–R16 | Row signal inputs |
+| CD74HC4067 (Mux8) | C0–C15 | FSR-4 Rows R17–R32 | Row signal inputs |
+
+### Shift Register Connections (Column Scanning)
+
+| COMPONENT | PIN | CONNECTED TO | DESCRIPTION |
+| --- | --- | --- | --- |
+| SN74HC595 (SR1) | SER | Arduino D11 | Serial data input |
+| SN74HC595 (SR1–SR16) | QH′ | SER of next shift register | Cascading shift registers |
+| SN74HC595 (All) | RCLK | Arduino D10 | Latch clock |
+| SN74HC595 (All) | SRCLK | Arduino D13 | Shift clock |
+| SN74HC595 (All) | RCLR | VCC | Reset disabled (active low) |
+| SN74HC595 (All) | Q0–Q7 | FSR Column Channels (64 columns) | Column excitation outputs |
+
+### Power and Ground Connections
+
+| COMPONENT | PIN | CONNECTED TO | DESCRIPTION |
+| --- | --- | --- | --- |
+| All Shift Registers & Mux | VCC | Arduino VCC (3.3 V) | Power supply |
+| All Shift Registers & Mux | GND | Arduino GND | Common ground |
+
+### C++ Code
+
+The firmware:
+
+- Scans all 4096 sensing cells
+- Maintains stable SPI-based column control
+- Streams data efficiently for visualization
+
+```
+//C++ code for 64x64 with SPI protocol but working needs to be checked
+#include <Arduino.h>
+#include <SPI.h>
+
+// --- SPI Pin Definitions ---
+const int slaveSelectPin = 10; 
+
+// --- CD74HC4067 Address Pins ---
+const int sPins[] = {2, 3, 4, 5};
+
+// --- Analog Rows (8 Mux outputs connected to 8 Analog Pins) ---
+// Sensors 1 & 2 (Upper half of the matrix)
+const int rowsTop[] = {A0, A1, A2, A3}; 
+// Sensors 3 & 4 (Lower half of the matrix)
+const int rowsBottom[] = {A4, A5, A6, A7};
+
+void setActiveColumn(int col);
+void clearAllColumns();
+void setMuxAddress(int ch);
+
+void setup() {
+  Serial.begin(921600);
+  pinMode(slaveSelectPin, OUTPUT);
+  digitalWrite(slaveSelectPin, HIGH);
+  
+  SPI.begin();
+  // High speed SPI for faster scanning
+  SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+  
+  for (int i = 0; i < 4; i++) {
+    pinMode(sPins[i], OUTPUT);
+  }
+  clearAllColumns();
+}
+
+void loop() {
+  for (int col = 0; col < 64; col++) {
+    setActiveColumn(col);
+    
+    for (int ch = 0; ch < 16; ch++) {
+      setMuxAddress(ch);
+      delayMicroseconds(15); // Allow analog voltage to settle
+      
+      // Read Top Sensors (Rows 0-31)
+      for (int r = 0; r < 4; r++) {
+        Serial.print(analogRead(rowsTop[r]));
+        Serial.print(",");
+      }
+      
+      // Read Bottom Sensors (Rows 32-63)
+      for (int r = 0; r < 4; r++) {
+        Serial.print(analogRead(rowsBottom[r]));
+        
+        // Handle trailing comma: Only omit for the very last value of the 4096 set
+        if (col == 63 && ch == 15 && r == 3) {
+           // End of frame
+        } else {
+           Serial.print(",");
+        }
+      }
+    }
+  }
+  Serial.println(); // Signal end of frame
+}
+
+void setMuxAddress(int ch) {
+  digitalWrite(sPins[0], (ch & 0x01));
+  digitalWrite(sPins[1], (ch >> 1) & 0x01);
+  digitalWrite(sPins[2], (ch >> 2) & 0x01);
+  digitalWrite(sPins[3], (ch >> 3) & 0x01);
+}
+
+void setActiveColumn(int col) {
+  // Use 64-bit unsigned integer to represent 64 columns
+  uint64_t bitmask = 1ULL << col; 
+  
+  digitalWrite(slaveSelectPin, LOW);
+  // Transfer 8 bytes (64 bits) to the 16 shift registers
+  for (int i = 7; i >= 0; i--) {
+    SPI.transfer((bitmask >> (i * 8)) & 0xFF);
+  }
+  digitalWrite(slaveSelectPin, HIGH);
+}
+
+void clearAllColumns() {
+  digitalWrite(slaveSelectPin, LOW);
+  for(int i = 0; i < 8; i++) {
+    SPI.transfer(0);
+  }
+  digitalWrite(slaveSelectPin, HIGH);
+}
+```
+
+### Python Heatmap Code
+
+The Python code reconstructs a 64×64 matrix and displays a real-time pressure heatmap
+
+```cpp
+import serial
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+# --- Settings ---
+COM_PORT = 'COM6'  # Change to your actual port
+BAUD_RATE = 921600
+ROWS, COLS = 64, 64
+THRESHOLD = 40 
+EXPECTED_SAMPLES = 4096 
+
+try:
+    ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=0.1)
+    ser.flushInput()
+    print(f"Connected to {COM_PORT}")
+except Exception as e:
+    print(f"Error: {e}")
+    exit()
+
+fig, ax = plt.subplots(figsize=(10, 10))
+data_matrix = np.zeros((ROWS, COLS))
+
+# 'Gaussian' interpolation creates a smooth heat look
+im = ax.imshow(data_matrix, cmap='jet', interpolation='gaussian', vmin=0, vmax=1024)
+plt.colorbar(im)
+
+ax.xaxis.tick_top()
+ax.set_title("64x64 FSR Matrix Real-Time Heatmap")
+
+def update(frame):
+    if ser.in_waiting > 0:
+        try:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            if not line: return [im]
+
+            raw_data = [int(x) for x in line.split(',') if x.strip()]
+            
+            if len(raw_data) == EXPECTED_SAMPLES:
+                # 1. Convert to numpy array
+                arr = np.array(raw_data)
+                
+                # 2. Reshape to match the Arduino loop: (Columns, MuxChannels, Pins)
+                # We have 64 columns, 16 Mux channels, and 8 pins read per channel
+                temp = arr.reshape((64, 16, 8))
+                
+                full_canvas = np.zeros((64, 64))
+                
+                # 3. Map the data to the correct coordinates
+                for col in range(64):
+                    for ch in range(16):
+                        for p in range(8):
+                            # Determine Row: 
+                            # Pins 0-3 (rowsTop) go to rows (ch, ch+16, etc.)
+                            # This mapping depends on how you physically wired the sensors
+                            row_offset = 32 if p >= 4 else 0
+                            actual_row = ch + row_offset
+                            
+                            # You may need to adjust 'actual_row' or 'col' based on
+                            # if the sensors are oriented horizontally or vertically.
+                            full_canvas[actual_row, col] = temp[col, ch, p]
+
+                # Apply noise threshold
+                full_canvas[full_canvas < THRESHOLD] = 0
+             
+                # Update the display
+                im.set_data(full_canvas)
+                       else:
+                print(f"Packet Error: Received {len(raw_data)} samples.")   
+        except Exception as e:
+            print(f"Data Error: {e}")
+    return [im]
+ani = FuncAnimation(fig, update, interval=1, blit=True, cache_frame_data=False)
+plt.tight_layout()
+plt.show()
+
+ser.close()
+```
+
+# A Proposed Calibration Methodology for the Conversion of ADC Values to Mass (in Grams)
+
+Calibration is an essential step in **Force Sensing Resistor (FSR)–based measurement systems**, as it establishes a meaningful relationship between the raw electrical output of the sensor and the actual applied force or weight. In FSR systems, calibration involves converting **ADC readings obtained from the microcontroller into physical units such as grams**. This is necessary because FSRs exhibit **nonlinear behavior** and do not provide direct force measurements.
+
+Proper calibration improves **measurement accuracy and repeatability**, which is especially important when working with **large FSR matrices**, where a uniform response across all sensing elements is required.
+
+## ADC Data Acquisition for Calibration
+
+ADC data acquisition for calibration is performed by applying **known reference weights** to the sensor and recording the corresponding ADC values. To reduce noise and improve stability, multiple ADC samples are collected for each applied weight and then averaged.
+
+The averaged ADC values are processed as follows:
+
+- ADC values are converted into output voltage V_out using the ADC resolution and reference voltage.
+- The FSR resistance R_fsr is calculated using the voltage divider equation.
+- Conductance G=1/R_fsr is computed to obtain a more linear relationship with applied force.
+
+Based on this processed data, a **linear calibration model** is evaluated to map conductance to applied weight. These calibration models help compensate for **bias, scaling variations, hysteresis, and drift**, enabling stable and reliable force measurement in practical applications.
+
+## Measurement of ADC Values Using Known Reference Weights
+
+ADC readings are obtained by placing **known reference weights (20 g, 50 g, 100 g, 200 g, and 500 g)** on a **single sensing cell** of the FSR matrix. Each weight is applied at the same location to maintain consistent loading conditions.
+
+For every applied load:
+
+- Multiple ADC samples are recorded
+- The samples are averaged to minimize noise and improve measurement stability
+
+The averaged ADC values are then used to compute:
+
+- Output voltage V_out
+- FSR resistance R_fsr
+- Conductance G
+
+These parameters serve as inputs to the calibration equations, which are finally used to convert raw ADC values into **physical units such as grams**.
+
+## Alternative Calibration Using a Material Testing Machine
+
+An alternative approach for acquiring ADC values involves applying **controlled loads using a material testing machine**. This method provides higher accuracy and repeatability compared to discrete weights and enables precise characterization of the FSR response under well-defined loading conditions.
+
+A similar calibration approach using a material testing setup is discussed in the research paper:
+
+**“Evaluation of Force Sensing Resistors for the Measurement of Interface Pressures in Lower Limb Prosthetics.”**
+
+---
+
+## Calculation of V_out , R_fsr, and Conductance
+
+To establish a reliable calibration model, ADC readings were collected by applying known discrete weights to a single sensing cell of the FSR matrix. For each reference mass (20 g, 50 g, 100 g, 200 g, and 500 g), approximately **60 ADC samples** were recorded under identical loading conditions.
+
+These samples were averaged to reduce noise and improve measurement stability. The averaged ADC values form the basis for converting raw sensor output into electrical parameters used for calibration.
+
+## Step 1: ADC to Voltage Conversion ( V_out)
+
+The Arduino Nano ESP32 uses a **12-bit ADC**, producing values in the range **0 to 4095**. Each averaged ADC value is converted into the corresponding analog voltage using the reference supply voltage.
+
+![image.png](attachment:7c37c357-9e35-4186-8af7-083c2ea73012:image.png)
+
+This step translates the digital ADC output into a measurable voltage level.
+
+---
+
+## Step 2: Voltage to FSR Resistance Conversion ( R_fsr)
+
+The FSR is connected in a **voltage divider configuration** with a fixed resistor of **10 kΩ**. Using the measured output voltage, the resistance of the FSR is calculated using the voltage divider equation.
+
+This calculation determines the effective resistance of the FSR for each applied load.
+
+![image.png](attachment:553206e8-8b66-4d24-8ce8-7dc00933a45b:image.png)
+
+## Step 3: Resistance to Conductance Conversion (G )
+
+Based on the manufacturer-provided characteristic curves of the FSR, **conductance (G=1/R_fsr) exhibits an approximately linear relationship with applied force**. Since FSR resistance has a nonlinear relationship with force, the resistance value is inverted to obtain conductance, which shows improved linearity with load.
+
+![image.png](attachment:331d49f3-df97-45e0-bd8e-84789fb8108d:image.png)
+
+Conductance values are expressed in **microsiemens (µS)** and are used for deriving calibration models.
+
+## C++ Code for Extracting Electrical Parameters
+
+C++ code is implemented to compute and output the following parameters for a single FSR cell:
+
+- Output voltage  V_out
+- FSR resistance  R_fsr
+- Conductance G
+
+```cpp
+//code to get the values such has V_out ,Conducatance, R_fsr,G. etc 
+#include <Arduino.h>
+// --- Pin Definitions ---
+const int ser    = 11; 
+const int srclk  = 13; 
+const int rclk   = 10; 
+const int sPins[] = {2, 3, 4, 5};
+const int rowB    = A1; // Reading from MUX 2
+// --- Calibration Constants ---
+const float VCC = 3.3;      // Supply voltage
+const float R_FIXED = 10000.0; // 10k ohms fixed resistor
+void setup() {
+  Serial.begin(115200);
+  pinMode(ser, OUTPUT);
+  pinMode(srclk, OUTPUT);
+  pinMode(rclk, OUTPUT);
+  for (int i = 0; i < 4; i++) {
+    pinMode(sPins[i], OUTPUT);
+  }
+  // --- 1. ACTIVATE SHIFT REGISTER 1, Qa ---
+  digitalWrite(rclk, LOW);
+  for (int i = 1; i <= 32; i++) {
+    digitalWrite(srclk, LOW);
+    if (i == 32) { 
+      digitalWrite(ser, HIGH); 
+    } else {
+      digitalWrite(ser, LOW);
+    }
+    digitalWrite(srclk, HIGH);
+  }
+  digitalWrite(rclk, HIGH);
+  // --- 2. SET MUX 2 TO CHANNEL 15 ---
+  digitalWrite(sPins[0], HIGH); 
+  digitalWrite(sPins[1], HIGH); 
+  digitalWrite(sPins[2], HIGH); 
+  digitalWrite(sPins[3], HIGH);
+  // Print Header for Tabulation
+  Serial.println("\n--- RoxiFSR Calibration Data ---");
+  Serial.println("ADC\tV_out(V)\tR_fsr(Ohms)\tG(uS)");
+  Serial.println("----------------------------------------------");
+}
+void loop() {
+  delayMicroseconds(30);
+  // 1. Read Raw ADC
+  int adcVal = analogRead(rowB);
+  // 2. Calculate V_out
+  float vOut = (adcVal * VCC) / 4096.0;
+  // 3. Calculate R_fsr (with safety check to avoid division by zero)
+  float rFsr;
+  float conductance;
+  if (adcVal <= 5) { // If ADC is near zero, resistance is effectively infinite
+    rFsr = 0; 
+    conductance = 0;
+  } else {
+    rFsr = ((VCC - vOut) * R_FIXED) / vOut;
+    // 4. Calculate Conductance (G) in microSiemens (uS)
+    conductance = 1000000.0 / rFsr;
+  }
+  // Display values in a tabulated format
+  Serial.print(adcVal);
+  Serial.print("\t");
+  Serial.print(vOut, 3);      // 3 decimal places
+  Serial.print("\t\t");
+  if (rFsr == 0) Serial.print("INF");
+  else Serial.print(rFsr, 1);
+  Serial.print("\t\t");
+  Serial.println(conductance, 4);
+  delay(500); // Slow down for easier reading during experiment
+}
+```
+
+## Summary of Calibration Data
+
+The table below represents the averaged calibration results for each reference mass, including:
+
+- Mean ADC value
+- Calculated output voltage
+- FSR resistance
+- Conductance
+
+These parameters serve as inputs for developing calibration equations that map raw ADC readings to physical units such as grams.
+
+This systematic conversion process ensures a **consistent and repeatable relationship** between applied load and sensor output, forming the foundation for the linear calibration model.
+
+### Calibration Data Table
+
+| Reference Mass (g) | Avg ADC | Avg V_out  | Avg R_fsr (Ω) | Avg Conductance G (µS) |
+| --- | --- | --- | --- | --- |
+| 20 | 50.3 | 0.041 | 827,869 | 1.24 |
+| 50 | 154.9 | 0.125 | 254,653 | 3.93 |
+| 100 | 308.2 | 0.248 | 125,698 | 8.15 |
+| 200 | 639 | 0.515 | 55,048 | 18.54 |
+| 500 | 1202.3 | 0.969 | 24,193 | 41.63 |
+
+## Linear Calibration Model Using Conductance
+
+Based on the manufacturer-provided characteristic curves of the FSR, the sensor’s conductance **G=1/R_fsr** shows an approximately linear relationship with applied force. Therefore, raw ADC readings are first converted into conductance before applying calibration models to estimate physical mass.
+
+After converting ADC values into conductance G, mathematical calibration models are used to map these electrical values to physical mass **y (in grams)**. These models account for sensor nonlinearity, scaling, and offset.
+
+## Linear Calibration Equation
+
+The linear calibration approach uses a first-order polynomial model:
+
+                                                      **y=mx+c** 
+
+Where:
+
+- y  = Estimated mass in grams (g)
+- x  = Measured conductance in microsiemens (µS)
+- m  = Scaling factor (sensor sensitivity)
+- c  = Offset or bias term
+
+Conductance is chosen as the input variable because it provides a more linear response to applied force than raw resistance.
+
+## Determination of Calibration Constants
+
+To compute the calibration constants, known reference weights (20 g, 50 g, 100 g, 200 g, and 500 g) were applied to a single sensing cell. For each load, conductance values were calculated and averaged.
+
+The slope m is calculated as:
+
+![image.png](attachment:34451fed-5b37-4813-a2af-efc37e90d52b:image.png)
+
+The intercept c is calculated using:
+
+![image.png](attachment:67c68ec7-3629-4baa-ae50-4828ae672086:image.png)
+
+Where n is the number of calibration points.
+
+For the collected average ADC values, the calculated calibration constants were:
+
+- **m = 11.82**
+- **c = 0.171**
+
+## Final Calibration Equation
+
+The final linear calibration equation used in the system is:
+
+                                                             **Mass (g)=11.82×G+0.171**
+
+By converting resistance to conductance, the nonlinear behavior of the FSR is significantly reduced, allowing a simple linear model to achieve reliable accuracy. This approach provides an efficient balance between computational simplicity and measurement accuracy, making it well suited for real-time processing across an FSR matrix.
+
+## C++ Calibration Code
+
+C++ calibration code is implemented to convert the sensor output of a single FSR cell into mass using the linear calibration model **y=mx+c** 
+
+formula 
+
+```cpp
+//caliberation code to measure grams of a single cell using linear calculation y=mx+c
+#include <Arduino.h>
+// --- Pin Definitions (Hardware) ---
+const int ser    = 11; 
+const int srclk  = 13; 
+const int rclk   = 10; 
+const int sPins[] = {2, 3, 4, 5}; // MUX control pins
+const int rowB    = A1;           // Analog reading pin
+// --- Electrical Constants ---
+const float VCC      = 3.3;       // System Voltage
+const float R_FIXED  = 10000.0;   // 10k Ohm fixed resistor
+const float ADC_RES  = 4096.0;    // 12-bit ADC Resolution
+// --- Your Derived Calibration Constants ---
+// Calculated from your specific sensor readings
+const float SLOPE    = 11.826;    // Derived from your CSV data
+const float OFFSET   = 0.171;     // Derived from your CSV data
+void setup() {
+  Serial.begin(115200);
+  // Initialize Pins
+  pinMode(ser, OUTPUT);
+  pinMode(srclk, OUTPUT);
+  pinMode(rclk, OUTPUT);
+  for (int i = 0; i < 4; i++) {
+    pinMode(sPins[i], OUTPUT);
+  }
+  // --- 1. ACTIVATE SHIFT REGISTER (Pin Qa at position 32) ---
+  digitalWrite(rclk, LOW);
+  for (int i = 1; i <= 32; i++) {
+    digitalWrite(srclk, LOW);
+    // Send HIGH bit to the last position as per your requirement
+    digitalWrite(ser, (i == 32) ? HIGH : LOW); 
+    digitalWrite(srclk, HIGH);
+  }
+  digitalWrite(rclk, HIGH);
+  // --- 2. SET MUX TO CHANNEL 15 (S0-S3 all HIGH) ---
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(sPins[i], HIGH);
+  }
+  Serial.println("RoxiFSR System Initialized");
+  Serial.println("Reading Weight in Grams...");
+  Serial.println("--------------------------------");
+}
+void loop() {
+  // Small delay for analog signal stabilization
+  delayMicroseconds(30); 
+  // 1. Read Raw 12-bit ADC value
+  int adcVal = analogRead(rowB);
+  // 2. Convert ADC to Voltage (V_out)
+  float vOut = (adcVal * VCC) / ADC_RES;
+  float massGrams = 0;
+  // 3. Perform Calculations if weight is detected
+  // A threshold of 15-20 helps ignore electrical noise at 0g
+  if (adcVal > 15) {
+    // Calculate Resistance (R_fsr)
+    float rFsr = ((VCC - vOut) * R_FIXED) / vOut;
+    // Calculate Conductance (G) in microSiemens
+    float conductance = 1000000.0 / rFsr;
+    // 4. Apply Linear Calibration Formula: Mass = (Slope * G) + Offset
+    massGrams = (SLOPE * conductance) + OFFSET;
+    // Safety check to ensure mass isn't negative due to tiny offset noise
+    if (massGrams < 0) massGrams = 0;
+  }
+  // 5. Output to Serial Monitor
+  Serial.print("ADC: ");
+  Serial.print(adcVal);
+  Serial.print(" | Weight: ");
+  Serial.print(massGrams, 1); // Display with 1 decimal place
+  Serial.println(" g");
+  delay(500); // 2 readings per second
+}
+```
+
+## Other Calibration Methods
+
+In addition to linear calibration, other commonly used FSR calibration methods include:
+
+### Power Law Calibration
+
+![image.png](attachment:c7311641-8a51-4406-ad95-eebd3c6d78b4:image.png)
+
+### Fourth-Order Polynomial Calibration
+
+![image.png](attachment:9262565c-3f2b-46b6-98e5-011574bafade:image.png)
+
+**A unified C++ calibration code is implemented that integrates linear, power law, and fourth-order polynomial calibration methods for measuring the mass applied to a single FSR cell.**
