@@ -1188,6 +1188,7 @@ In addition to linear calibration, other commonly used FSR calibration methods i
 ![image.png](attachment:9262565c-3f2b-46b6-98e5-011574bafade:image.png)
 
 **A unified C++ calibration code is implemented that integrates linear, power law, and fourth-order polynomial calibration methods for measuring the mass applied to a single FSR cell.**
+```cpp
 #include <Arduino.h>
 #include <math.h> 
 // --- Pin Definitions (Hardware) ---
@@ -1252,6 +1253,7 @@ void loop() {
   Serial.print(" | Poly: "); Serial.println(mPoly, 1); 
   delay(500);
 }
+```
 ## References
 
 **[1] RX-M3232L Force Sensing Resistor Matrix Datasheet – RoxiFSR Technologies**
