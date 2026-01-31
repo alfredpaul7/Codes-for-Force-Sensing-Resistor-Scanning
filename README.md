@@ -6,7 +6,7 @@
 
 **Notion link:** [https://www.notion.so/Documentation-for-Interfacing-and-data-Acquisation-of-Force-sensing-resistor-2f835f708a9380aaaa4dd4aeb9c6d309?source=copy_link](https://www.notion.so/Documentation-for-Interfacing-and-data-Acquisation-of-Force-sensing-resistor-2f835f708a9380aaaa4dd4aeb9c6d309?pvs=21)
 
-**Report link :** https://drive.google.com/drive/folders/1ozw_Ty0pGpx6KO5M5wNeE8qQ3ilpqTL_?usp=sharing
+**Report link :** [https://drive.google.com/drive/folders/1ozw_Ty0pGpx6KO5M5wNeE8qQ3ilpqTL_?usp=sharing](https://drive.google.com/file/d/1IdxyOeF8CnUpDEcaiJvZME7_e5mwBtCa/view?usp=sharing)
 
 **Github repository:** https://github.com/alfredpaul7/Codes-for-Force-Sensing-Resistor-Scanning
 
