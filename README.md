@@ -86,6 +86,7 @@ In this configuration, FSR matrix columns are activated sequentially using shift
 | SN74HC595N (All) | RCLK | Arduino D10 | Latch clock |
 | SN74HC595N (All) | SRCLK | Arduino D13 | Shift clock |
 | SN74HC595N (All) | RCLR | VCC | Reset disabled (active low) |
+| SN74HC595N (All) | OE | GND |  f |
 | SN74HC595N (All) | Q0–Q7 | FSR Column Channels (32 columns) | Column excitation outputs |
 | All Shift Registers & Mux | VCC | Arduino VCC (3.3 V) | Power supply |
 | All Shift Registers & Mux | GND | Arduino GND | Common ground |
@@ -462,9 +463,11 @@ Two 32×32 FSR matrices are placed side by side to form a 32×64 sensing surface
 | SN74HC595N (All) | RCLK | Arduino D10 | Latch clock |
 | SN74HC595N (All) | SRCLK | Arduino D13 | Shift clock |
 | SN74HC595N (All) | RCLR | VCC | Reset disabled (active low) |
+| SN74HC595N (All) | OE | GND| Reset disabled (active low) |
 | SN74HC595N (All) | Q0–Q7 | FSR Column Channels | Column excitation outputs |
 | All Shift Registers & Mux | VCC | Arduino VCC (3.3 V) | Power supply |
 | All Shift Registers & Mux | GND | Arduino GND | Common ground |
+
 
 ### C++ Code
 
@@ -630,6 +633,155 @@ plt.show()
 ser.close()
 ```
 
+
+
+
+## nterfacing 3 pcs of 32×32 FSR using (SPI)
+
+### C++ code
+
+```cpp
+#include <Arduino.h>
+#include <SPI.h>
+
+const int slaveSelectPin = 10; 
+const int sPins[] = {2, 3, 4, 5};
+void setActiveColumn(int col);
+void clearAllColumns();
+void setMuxAddress(int ch);
+// Analog Rows for 3 Sensors
+const int rowA = A0; const int rowB = A1; // Sensor 1 (Left)
+const int rowC = A2; const int rowD = A3; // Sensor 2 (Middle)
+const int rowE = A4; const int rowF = A5; // Sensor 3 (Right)
+
+void setup() {
+  Serial.begin(921600);
+  pinMode(slaveSelectPin, OUTPUT);
+  digitalWrite(slaveSelectPin, HIGH);
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+  for (int i = 0; i < 4; i++) pinMode(sPins[i], OUTPUT);
+  
+  // Clear all 96 columns initially
+  digitalWrite(slaveSelectPin, LOW);
+  for(int i=0; i<12; i++) SPI.transfer(0); 
+  digitalWrite(slaveSelectPin, HIGH);
+}
+
+void loop() {
+  // We iterate through 32 columns. Each "column" trigger activates 
+  // one column on ALL THREE sensors simultaneously.
+  for (int col = 0; col < 32; col++) {
+    setActiveColumn(col);
+    
+    for (int ch = 0; ch < 16; ch++) {
+      setMuxAddress(ch);
+      delayMicroseconds(15); // Slight delay for ADC stability
+      
+      // Sensor 1
+      Serial.print(analogRead(rowA)); Serial.print(",");
+      Serial.print(analogRead(rowB)); Serial.print(",");
+      // Sensor 2
+      Serial.print(analogRead(rowC)); Serial.print(",");
+      Serial.print(analogRead(rowD)); Serial.print(",");
+      // Sensor 3
+      Serial.print(analogRead(rowE)); Serial.print(",");
+      Serial.print(analogRead(rowF));
+      
+      // Trailing comma management for a total of 3072 values (32*16*6)
+      if (ch < 15 || col < 31) {
+        Serial.print(",");
+      }
+    }
+  }
+  Serial.println(); 
+}
+
+void setMuxAddress(int ch) {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(sPins[i], (ch >> i) & 0x01);
+  }
+}
+
+void setActiveColumn(int col) {
+  // We need to send 12 bytes (96 bits). 
+  // Each 4 bytes (32 bits) represents one 32x32 sensor tile.
+  uint32_t bitmask = 0x00000001UL << col;
+  
+  digitalWrite(slaveSelectPin, LOW);
+  // Send 3 identical bitmasks to activate the same column index on all 3 tiles
+  for(int i=0; i<3; i++) {
+    SPI.transfer((bitmask >> 24) & 0xFF);
+    SPI.transfer((bitmask >> 16) & 0xFF);
+    SPI.transfer((bitmask >> 8) & 0xFF);
+    SPI.transfer(bitmask & 0xFF);
+  }
+  digitalWrite(slaveSelectPin, HIGH);
+}
+```
+
+## Python code
+
+```python
+import serial
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+# --- Settings ---
+COM_PORT = 'COM6'
+BAUD_RATE = 921600
+ROWS, COLS = 32, 96  # 3 sensors of 32 columns each
+EXPECTED_SAMPLES = 3072 # 32 * 32 * 3
+
+try:
+    ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=0.1)
+    ser.flushInput()
+    print(f"Connected to {COM_PORT}")
+except Exception as e:
+    print(f"Error: {e}")
+    exit()
+
+fig, ax = plt.subplots(figsize=(15, 5))
+data_matrix = np.zeros((ROWS, COLS))
+im = ax.imshow(data_matrix, cmap='jet', interpolation='gaussian', vmin=0, vmax=1023)
+plt.colorbar(im)
+
+def update(frame):
+    if ser.in_waiting > 0:
+        try:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            if not line: return [im]
+            
+            raw_data = [int(x) for x in line.split(',') if x.strip()]
+            
+            if len(raw_data) == EXPECTED_SAMPLES:
+                # Reshape data into three 32x32 tiles
+                # Note: Arduino sends RowA,B then C,D then E,F per Mux step
+                all_data = np.array(raw_data).reshape(32, 16, 6)
+                
+                tile1 = all_data[:, :, 0:2].reshape(32, 32).T
+                tile2 = all_data[:, :, 2:4].reshape(32, 32).T
+                tile3 = all_data[:, :, 4:6].reshape(32, 32).T
+
+                # Stitch them together
+                full_canvas = np.hstack([tile1, tile2, tile3])
+                
+                # Apply simple noise threshold
+                full_canvas[full_canvas < 40] = 0
+                im.set_data(full_canvas)
+            else:
+                print(f"Buffer Error: Received {len(raw_data)} / {EXPECTED_SAMPLES}")
+                
+        except Exception as e:
+            print(f"Stream error: {e}")
+    return [im]
+
+ani = FuncAnimation(fig, update, interval=1, blit=True, cache_frame_data=False)
+plt.show()
+ser.close()
+```
+
 ## Interfacing 4 pcs of 32×32 FSR to Form a 64×64 Matrix (SPI) but working needs to be checked
 
 ### System Overview
@@ -674,6 +826,7 @@ Four 32×32 FSR matrices are combined to form a 64×64 sensing surface. The same
 | SN74HC595 (All) | SRCLK | Arduino D13 | Shift clock |
 | SN74HC595 (All) | RCLR | VCC | Reset disabled (active low) |
 | SN74HC595 (All) | Q0–Q7 | FSR Column Channels (64 columns) | Column excitation outputs |
+| SN74HC595N (All) | OE | GND | R  |
 
 ### Power and Ground Connections
 
